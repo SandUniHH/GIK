@@ -6,54 +6,152 @@ GIK Aufgabe 3.1
 Abgabe 18.05.2017
 '''
 
-import argparse # to read line parameters
+import argparse  	# to read line parameters
+import collections 	# to use a matrix with uninitialised elements
 
 # read the file, parse and check the sequences
 def readfile():
-	
 	parser = argparse.ArgumentParser(description=
-	'Calculate the RNA secondary structure using the Nussinov algorithm')
+		'Calculate the RNA secondary structure using the Nussinov algorithm')
 	parser.add_argument('filename')
-    
+
 	args = parser.parse_args()
-    
-	file = open(args.filename,'r')
-    
+
+	file = open(args.filename, 'r')
+
 	with file as f:
 		l = f.readlines()
-		sequences = [] # sequences will be stored in this list
-		for line in l:			
-			
-			# exclude headers and sequence labels
-			if (line[0] == '#' or line[0] == '>'):
-				continue
-			
-			# add the line if the bases are correct
-			if check_bases(line):
-				sequences.append(line)
+		seqs = []  # sequences will be stored in this list
+		for line in l:
 
-	return sequences
+			# exclude headers and sequence labels
+			if line[0] == '#' or line[0] == '>':
+				continue
+
+			# add the line/sequence if the bases are correct
+			if line[-1] == '\n':
+				line = line[:-1]
+			if check_bases(line):
+				seqs.append(line)
+
+	return seqs
 
 # exclude faulty sequences
 def check_bases(line):
-	
-	allowed_bases = 'acgu\n'
+	allowed_bases = 'acgu'
 	correct_bases = True
-	
-	try:		
+
+	try:
 		for base in line:
 			if base.lower() not in allowed_bases:
-				raise ValueError("Wrong character '{}' detected!".format(base))				
-				
+				raise ValueError("Wrong character '{}' detected!".format(base))
+
 	except ValueError as err:
 		print(err.args)
 		correct_bases = False
 
 	return correct_bases
 
+# energy function alpha
+def alpha_function(base1, base2):
+	if 		(base1 == 'G' and base2 == 'C') or \
+			(base1 == 'C' and base2 == 'G'):
+		return -3
+	elif	(base1 == 'A' and base2 == 'U') or \
+		 	(base1 == 'U' and base2 == 'A'):
+		return -2
+	elif 	(base1 == 'G' and base2 == 'U') or \
+			(base1 == 'U' and base2 == 'G'):
+		return -1
+	else:
+		return float("inf")
+
+# obtain the minimum value of cases 1, 2a, 2b and 2c
+def e_min_value(i, j, e, sequence):
+	equation1 = e[i + 1, j - 1] + \
+				alpha_function(sequence[i - 1], sequence[j - 1])
+	equation2 = e[i + 1, j]
+	equation3 = e[i, j - 1]
+
+	equation4 = float("inf")
+	for k in range(i + 2, j - 1):
+		current = e[i, k - 1] + e[k, j]
+
+		if current < equation4:
+			equation4 = current
+
+	equation_values = [equation1, equation2, equation3, equation4]
+
+	return min(equation_values)
+
+# evaluate all secondary structures for a sequence and
+# return the minimum free energy
+def calculate_mfe(sequence):
+	n = len(sequence)
+	l_min = 3
+
+	# The E matrix we will use for the dynamic programming approach.
+	# It allows undefined values and easy addition of additional values.
+	# This is reasonably efficient since we are working at > O(n²) complexity.
+	e = collections.defaultdict(float)
+
+	for i in range(1, n):
+		e[i, i] = 0
+
+	for l in range(2, n):
+		for i in range(1, n - l + 1):
+
+			j = i + l - 1  # j is a substring of length l
+
+			if (j - i - 1) < l_min:
+				e[i, j] = 0
+			else:
+				e[i, j] = e_min_value(i, j, e, sequence)
+
+	return e
+
+# Trace back through the sequence using the E matrix. From this, the secondary
+# structure can be derived, i. e. the loops formed.
+def traceback(sequence, e, i, j):
+	if i < j:
+		if e[i,j] == e[i + 1, j - 1] + \
+				alpha_function(sequence[i - 1], sequence[j - 1]):
+			print ('(%i,%i)' % (i, j))
+			traceback(sequence, e, i + 1,j - 1)
+
+		elif e[i , j] == e[i + 1, j]:
+			traceback(sequence, e, i + 1, j)
+
+		elif e[i, j] == e[i, j - 1]:
+			traceback(sequence, e, i, j - 1)
+
+		else:
+			for k in range(i + 2, j - 1):
+				if e[i, j] == e[i, k - 1] + e[k, j]:
+					traceback(sequence, e, i, k - 1)
+					traceback(sequence, e, k, j)
+					break
+
 ''' 
 --------- main ----------
 '''
 
+# read the sequences, check if they are valid and preformat
 sequences = readfile()
-print (sequences)
+
+print('<fold2Dmulti>')
+
+for sequence in sequences:
+
+	# construct the matrix with the mfe values
+	matrix_e = calculate_mfe(sequence)
+
+	print('<fold2D>')
+	print('<seq>%s</seq>' % sequence.lower())
+	print('<pairs>')
+	traceback(sequence, matrix_e, 1, len(sequence) - 1) # lots of printing
+	print('</pairs>')
+	print('<mfe>%i</mfe>' % matrix_e[1, len(sequence) - 1])
+	print('</fold2D>')
+
+print('</fold2Dmulti>')
